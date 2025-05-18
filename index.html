@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+  <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/684/684908.png" type="image/png">
+  <title>Визуализация алгоритма A*</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background-color: #f4f4f4;
+    }
+    h2, p {
+      margin: 0;
+    }
+    #map {
+      height: calc(100vh - 60px);
+    }
+    .header {
+      background: #fff;
+      padding: 20px;
+      text-align: center;
+      border-bottom: 1px solid #ccc;
+    }
+    .header h2 {
+      font-size: 24px;
+      color: #333;
+    }
+    .header p {
+      font-size: 16px;
+      color: #555;
+    }
+    .reset-button {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: #007bff;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    .reset-button:hover {
+      background-color: #0056b3;
+    }
+    .footer {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: white;
+      padding: 5px 10px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+    .footer a {
+      text-decoration: none;
+      color: #007bff;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h2>Визуализация алгоритма A*</h2>
+    <p>Кликните дважды по карте, чтобы выбрать начальную и конечную точки. Алгоритм построит кратчайший путь.</p>
+  </div>
+
+  <div id="map"></div>
+
+  <button class="reset-button" onclick="resetMap()">Сбросить маршрут</button>
+
+  <div class="footer">
+    <a href="https://github.com/ваш_репозиторий" target="_blank">🔗 GitHub проекта</a>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([51.1605, 71.4704], 13); // Астана
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const gridSize = 0.001;
+    const grid = new Map();
+
+    function getKey(lat, lng) {
+      return `${lat.toFixed(4)}_${lng.toFixed(4)}`;
+    }
+
+    function getNeighbors(node) {
+      const deltas = [
+        [gridSize, 0],
+        [-gridSize, 0],
+        [0, gridSize],
+        [0, -gridSize],
+      ];
+      return deltas.map(([dLat, dLng]) => ({
+        lat: node.lat + dLat,
+        lng: node.lng + dLng
+      }));
+    }
+
+    function heuristic(a, b) {
+      return Math.abs(a.lat - b.lat) + Math.abs(a.lng - b.lng);
+    }
+
+    function aStar(start, goal) {
+      const openSet = [start];
+      const cameFrom = new Map();
+      const gScore = new Map();
+      const fScore = new Map();
+
+      const startKey = getKey(start.lat, start.lng);
+      gScore.set(startKey, 0);
+      fScore.set(startKey, heuristic(start, goal));
+
+      while (openSet.length > 0) {
+        openSet.sort((a, b) =>
+          fScore.get(getKey(a.lat, a.lng)) - fScore.get(getKey(b.lat, b.lng))
+        );
+
+        const current = openSet.shift();
+        const currentKey = getKey(current.lat, current.lng);
+
+        if (heuristic(current, goal) < gridSize * 1.5) {
+          const path = [current];
+          while (cameFrom.has(currentKey)) {
+            const prev = cameFrom.get(currentKey);
+            path.push(prev);
+            currentKey = getKey(prev.lat, prev.lng);
+          }
+          return path.reverse();
+        }
+
+        for (const neighbor of getNeighbors(current)) {
+          const neighborKey = getKey(neighbor.lat, neighbor.lng);
+          const tentativeG = gScore.get(currentKey) + gridSize;
+
+          if (!gScore.has(neighborKey) || tentativeG < gScore.get(neighborKey)) {
+            cameFrom.set(neighborKey, current);
+            gScore.set(neighborKey, tentativeG);
+            fScore.set(neighborKey, tentativeG + heuristic(neighbor, goal));
+            if (!openSet.find(p => getKey(p.lat, p.lng) === neighborKey)) {
+              openSet.push(neighbor);
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    let points = [];
+    let markers = [];
+
+    map.on('click', e => {
+      if (points.length === 2) {
+        points = [];
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+        if (routeLine) map.removeLayer(routeLine);
+      }
+
+      const snapped = {
+        lat: Math.round(e.latlng.lat / gridSize) * gridSize,
+        lng: Math.round(e.latlng.lng / gridSize) * gridSize,
+      };
+
+      markers.push(L.marker(snapped).addTo(map));
+      points.push(snapped);
+
+      if (points.length === 2) {
+        const path = aStar(points[0], points[1]);
+        if (path) {
+          const latlngs = path.map(p => [p.lat, p.lng]);
+          routeLine = L.polyline(latlngs, { color: 'red' }).addTo(map);
+        } else {
+          alert("Путь не найден");
+        }
+      }
+    });
+
+    let routeLine = null;
+
+    function resetMap() {
+      points = [];
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+      if (routeLine) {
+        map.removeLayer(routeLine);
+        routeLine = null;
+      }
+    }
+  </script>
+
+</body>
+</html>
